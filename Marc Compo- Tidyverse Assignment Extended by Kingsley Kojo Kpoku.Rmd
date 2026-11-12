@@ -1,0 +1,417 @@
+---
+title: "Foam Rolling your Way through the Tidyverse"
+author: "Marc Campo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning=F, message=F}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Data Source and Overview
+
+Data were taken from an experimental cross-over study of the effect of foam rolling (FR) on flexibility in a study in college athletes by Hirose et al.^1^  The authors made the data available for public download.   
+
+Twenty participants had flexibility measured, performed foam rolling (with a soccer ball), and then had their flexibility measured immediately after and 10 minutes after rolling.  Foam rolling was performed with a soccer ball on a force plate at low (15-25% body weight) and high (45-55%) pressure. Flexibility was assessed with the Posterior Straight Leg Test (PSLR).  
+
+In the data there are different rows for each participant at each intervention level but the pre, post and 10-minute post are in wide format.  We will use tidyr and dplyr to pull out the PSLR test data (which is what we use in the clinic more frequently), then summarize with dplyr and then convert to fully long format with tidyr.  
+
+```{r, include=F}
+# load needed packages
+
+
+library(readxl)
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(RColorBrewer)
+library(ggsci)
+library(afex)
+```
+
+## Load the Data
+
+Only the second sheet is needed.   
+
+```{r}
+
+data <- readxl::read_excel(
+  file.choose(),
+  sheet = "tab2"
+)
+
+
+data
+```
+
+## Change Variable Names
+
+Since the data were in Excel, some of the variables have names with spaces. 
+
+```{r}
+# Use rename instead of creating a new column
+data <- data %>%
+  rename(Measure = `Type of measurment`,
+  )
+```
+
+## Using dplyr to filter the data
+
+Here we select only the rows related to one of the two flexibility tests - the posterior straight leg raise (PSLR). This test is more commonly used in the clinic to assess hamstring length.  The filter command selects rows.  
+
+```{r}
+# filter only those rows that measure ROM with the PSLR test.  
+data <- data %>%
+  filter(Measure=="PSLR")
+```
+
+## Using dplyr to summarize the measures
+
+The research questions related to differences between conditions and sex.  In the code below you will see code to summarize the mean and SD in ROM measures grouped by condition, sex and then both.  
+
+In some cases, other non-dplyr commands like psych::describe may offer statistics that are not available through dplyr summarize like skew or IQR.  psych::describe output cannot be pipped into a dplyr command directly but a workaround would make for a great extension assignment!*   
+
+The results will be easier to evaluate when I plot them but we can see from the descriptive statistics that the foam rolling seemed to help and that women had a greater increase in ROM than men.  
+
+```{r, message=F, warning=F, error=F}
+# Use dplyr to group by condition and summarize with means and sds
+data %>%
+  group_by(Condition) %>%
+  summarize(
+    mean_pre=mean(Pre),
+    sd_pre = sd(Pre),
+    mean_post = mean(Post),
+    sd_post = sd(Post),
+    mean_post10 = mean(Post10),
+    sd_post10 = sd(Post10)
+  )
+
+# Group by sex and list out summary statistics
+data %>%
+  group_by(Sex) %>%
+  summarize(
+    mean_pre=mean(Pre),
+    sd_pre = sd(Pre),
+    mean_post = mean(Post),
+    sd_post = sd(Post),
+    mean_post10 = mean(Post10),
+    sd_post10 = sd(Post10)
+  )
+
+# Group by both sex and condition
+data %>%
+  group_by(Condition, Sex) %>%
+  summarize(
+    mean_pre=mean(Pre),
+    sd_pre = sd(Pre),
+    mean_post = mean(Post),
+    sd_post = sd(Post),
+    mean_post10 = mean(Post10),
+    sd_post10 = sd(Post10)
+  )
+```
+
+## Pivot Longer
+
+To visualize the data set and then test for significant differences, the long format allows for easier plotting and testing.  
+
+I am naming the measure (values_to) - "ROM" which stands for Range of Motion.  The indicator label in each row (names_to) will label the row as pre, post or 10 minutes post-rolling.  
+
+As you can see from the head, all columns and rows look good.  
+
+```{r}
+# Change from semi-wide to long format and label each condition in the rows.  Name the column with the PSLR data 'ROM'
+data_long <- data %>%
+  pivot_longer(cols=c("Pre", "Post", "Post10"), values_to = "ROM", names_to = "Time")
+head(data_long)
+```
+
+
+
+
+
+
+## Visualization and Testing
+
+The long data format makes it easier to plot.  With a smaller data set, we can squeeze a lot of data into the plots without overwhelming the reader.  Using ggplot, we can plot by both condition and sex.
+
+- The plots include box plots for each condition or sex across the 3 time periods.  
+- The large dots are the means.
+- The jittered points are the individual data points.
+  - When overlaying a jitter plot over a box plot, outlier.shape must be set to NA or *R* will duplicate outlying data points.  
+
+### By Condition
+
+The first plot is by condition. You can see that flexibility went up in the high and low pressure conditions and not as much in the control condition.  High pressure resulted in the highest gains and which seemed to persist at 10 minutes post.  
+
+Two participants may especially have influenced these results.  There was one participant that started with a lot of ROM and stayed that way under the high condition.  There was also one participant who started low, went a little lower, and then just leveled off a bit under the control condition.  Although the chart is busy, you can see the variability that would not be apparent by examining just box plots, or means.  
+
+Note that males and females are both included within each condition.  And that each condition includes the same 20 participants because this was a crossover.  
+
+```{r}
+# Make sure Time is ordered correctly because the chart will list them alphabetically - very annoying.  
+data_long$Time <- factor(
+  data_long$Time,
+  levels = c("Pre", "Post", "Post10")
+)
+
+# Specify position so we can repeatedly refer back to it and keep things consisent. 
+pd_condition <- position_dodge(width = 0.4)
+
+ggplot(data_long, aes(x = Time, y = ROM,
+                      color = Condition,
+                      fill = Condition)) +
+  
+# Boxplots by Condition at each time point
+  geom_boxplot(
+    aes(group = interaction(Time, Condition)),
+    width = 0.5,
+    alpha = 0.2,
+    position = pd_condition,
+    outlier.shape = NA
+  ) +
+  
+# Individual participant lines within each Condition
+  geom_line(
+    aes(group = interaction(ID, Condition)),
+    position = pd_condition,
+    alpha = 0.25,
+    linewidth = 0.4
+  ) +
+  
+# Individual participant points, aligned with the lines
+  geom_point(
+    aes(group = interaction(ID, Condition)),
+    position = pd_condition,
+    alpha = 0.6,
+    size = 1.8
+  ) +
+  
+# Mean line by Condition - this connects the overall mean dots.  
+  stat_summary(
+    aes(group = Condition),
+    fun = mean,
+    geom = "line",
+    position = pd_condition,
+    linewidth = 1.2
+  ) +
+  
+  # Mean points by Condition - this gives us the mean dots by condition.  
+  stat_summary(
+    aes(group = Condition),
+    fun = mean,
+    geom = "point",
+    position = pd_condition,
+    size = 3.5
+  ) +
+  
+  scale_color_aaas() +
+  scale_fill_aaas() +
+
+# Fix and Fancy labels
+  labs(
+    title = "Range of Motion Across Time by Condition",
+    x = "Time",
+    y = "ROM",
+    color = "Condition",
+    fill = "Condition"
+  ) + theme_minimal()
+```
+
+### By Sex
+
+You can see that Female scores went up a bit more than Male scores and that the initial changes persisted.  
+
+Note that in this plot, each individual data point represents the *average* of the 3 conditions in each sex group.   So the data points do not match what you would see above.  
+
+```{r}
+# This plot requires us to average the values for each participant accross three conditions within each time point.  
+data_sex_plot <- data_long %>%
+  group_by(ID, Sex, Time) %>%
+  summarize(
+    ROM = mean(ROM, na.rm = TRUE),
+    .groups = "drop"
+  )
+# This plot requires a different position_dodge to avoid crowding.  
+pd_sex <- position_dodge(width = 0.2)
+
+ggplot(data_sex_plot, aes(x = Time, y = ROM,
+                          color = Sex,
+                          fill = Sex)) +
+
+# Boxplots by Sex at each time point - don't forget to omit the outliers becuase of the individual points plotted.  
+  geom_boxplot(
+    aes(group = interaction(Time, Sex)),
+    width = 0.5,
+    alpha = 0.2,
+    position = pd_sex,
+    outlier.shape = NA
+  ) +
+  
+# Individual participant lines connecting their average values within condition.  
+  geom_line(
+    aes(group = ID),
+    position = pd_sex,
+    alpha = 0.25,
+    linewidth = 0.4
+  ) +
+  
+# Individual participant points, aligned with the lines
+  geom_point(
+    aes(group = ID),
+    position = pd_sex,
+    alpha = 0.6,
+    size = 1.8
+  ) +
+# Connect means with a line
+      stat_summary(
+    aes(group = Sex),
+    fun = mean,
+    geom = "line",
+    position = pd_sex,
+    linewidth = 1.2
+  ) +
+# Plot means
+   stat_summary(
+    aes(group = Sex),
+    fun = mean,
+    geom = "point",
+    position = pd_sex,
+    size = 3.5
+  ) +
+  
+  scale_color_aaas() +
+  scale_fill_aaas() +
+# Fix and Fancy!  
+  labs(
+    title = "Range of Motion Across Time by Sex",
+    x = "Time",
+    y = "ROM",
+    color = "Sex",
+    fill = "Sex"
+  ) +
+  
+  theme_minimal()
+```
+
+## Testing the Differences
+
+There is a significant Sex by Time and Condition by Time interaction which means there was significantly different changes between conditions over time and between sex groups over time.  There was a also a significant interaction between condition, sex, and time. We can do post-hoc testing to examine differences between specific groups over time if we need additional detail.  
+
+```{r}
+# Use one of several packages to run RM ANOVA with one within subjects factor (Time) and 2 between subjects factors (Condition and Sex).  I have omitted post-hoc testing with corrections for multiple comparisons but it would be needed if we were presenting/publishing this.   The packages chooses the sphericity correction for you.  
+model <- aov_ez(
+  id = "ID",
+  dv = "ROM",
+  data = data_long,
+  within = c("Time", "Condition"),
+  between = "Sex",
+  type = 3
+)
+nice(model)
+```
+
+## Conclusion
+
+Tidyr and dplyr are essential for working with a data set in all phases of the analysis from cleaning/filtering to plots and statistical testing.  
+
+## References
+
+1. Hirose N, Yoshimura A, Akiyama K, Furusho A. Sex and pressure effects of foam rolling on acute range of motion in the hamstring muscles. PloS one. 2025 Feb 24;20(2):e0319148.
+
+
+## ORIGINAL WORK BY MARC CAMPO
+
+## TIDYVERSE EXTENDED BY KINGSLEY KOJO KPOKU 
+
+## COMPARE ROM PATTERNS FOR MALES AND FEMALES
+
+```{r}
+sex_summary <- data_long %>%
+  filter(Measure == "PSLR") %>%
+  group_by(Sex, Condition, Time) %>%
+  summarise(mean_ROM = mean(ROM, na.rm = TRUE), .groups = "drop")
+
+ggplot(sex_summary, aes(x = Time, y = mean_ROM,
+                        color = Condition, group = Condition)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  facet_wrap(~ Sex) +
+  labs(
+    title = "Average ROM Over Time by Sex and Condition",
+    x = "Measurement time",
+    y = "Average ROM",
+    color = "Condition"
+  ) +
+  theme_minimal()
+
+## Based on the graph, average ROM generally increased from Pre to Post for both sexes in the High and Low conditions, with larger increases among females. In the CTRL condition, ROM stayed roughly steady for females and decreased slightly for males. Overall, the High and Low conditions appear to be associated with greater ROM increases than CTRL, but this graph alone cannot show whether those differences are statistically significant.
+```
+
+## COMPARE EACH PARTICIPANT'S CHANGE FROM PRE
+
+```{r}
+
+rom_change <- data_long %>%
+  filter(Measure == "PSLR") %>%
+  select(ID, Sex, Condition, Time, ROM) %>%
+  pivot_wider(names_from = Time, values_from = ROM) %>%
+  mutate(
+    change_Post = Post - Pre,
+    change_Post10 = Post10 - Pre
+  ) %>%
+  pivot_longer(
+    cols = starts_with("change_"),
+    names_to = "Time",
+    values_to = "ROM_change"
+  ) %>%
+  mutate(Time = recode(Time,
+                       change_Post = "Post",
+                       change_Post10 = "Post10"))
+
+change_summary <- rom_change %>%
+  group_by(Condition, Time) %>%
+  summarise(mean_change = mean(ROM_change, na.rm = TRUE),
+            .groups = "drop")
+
+ggplot(change_summary, aes(x = Condition, y = mean_change, fill = Time)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Average ROM Change from Pre by Condition",
+    x = "Condition",
+    y = "Average change in ROM",
+    fill = "Measurement time"
+  ) +
+  theme_minimal()
+
+## The graph shows the average change in ROM from **Pre** to **Post** and **Post10**. The **High** condition had the largest increase at both times, followed by **Low**. In the **CTRL** condition, ROM decreased slightly. The pattern suggests greater ROM improvement in the High and Low conditions than in CTRL, though this graph alone doesn’t show whether the differences are statistically significant.
+```
+## COMPARE AVERAGE ROM OVER TIME BY CONDITION
+
+```{r}
+rom_summary <- data_long %>%
+  filter(Measure == "PSLR") %>%
+  group_by(Condition, Time) %>%
+  summarise(mean_ROM = mean(ROM, na.rm = TRUE), .groups = "drop")
+
+ggplot(rom_summary, aes(x = Time, y = mean_ROM,
+                        color = Condition, group = Condition)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  labs(
+    title = "Average ROM Over Time by Condition",
+    x = "Measurement time",
+    y = "Average ROM",
+    color = "Condition"
+  ) +
+  theme_minimal()
+
+## Average ROM increased in both the **High** and **Low** conditions from Pre to Post, with a larger increase in High. Both remained nearly steady at Post10. In the **CTRL** condition, average ROM decreased slightly and then stayed about the same. Overall, the graph suggests ROM improved more in High and Low than in CTRL; it shows averages, so it doesn’t tell us whether those differences are statistically significant.
+```
+
+
+
+
+
+
