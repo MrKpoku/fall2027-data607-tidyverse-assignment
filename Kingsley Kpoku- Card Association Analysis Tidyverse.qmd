@@ -1,0 +1,159 @@
+---
+title: "Card Asociation Analysis-Tidyverse"
+author: "Kingsley Kojo Kpoku"
+date: "2026-11-12"
+format:
+  html:
+    toc: true
+    code-fold: true
+    theme: flatly
+editor: visual
+execute:
+  echo: true
+  warning: false
+---
+
+## INTRODUCTION
+
+```{r}
+## For this assignment, I will use several packages from the tidyverse to import, organize, analyze, and visualize the data. I will use readr to import the data, dplyr to group and summarize it, and tidyr to reshape wide-format columns into long format with pivot_longer(). I will use scales to format values and labels in charts, and ggplot2 to create visualizations.
+
+```
+
+## DATA SOURCES
+
+```{r}
+## 2.CARD ASSOCIATION ANALYSIS - Author-created illustrative data. Transaction counts and calculated percentages are hypothetical and are not actual card-network statistics.
+```
+
+## IMPORTING THE LIBRARIES
+
+```{r}
+
+library(readr) # import data suc as CSV Files
+library(dplyr) # Filter,select,group and summarize data
+library(tidyr) # Reshape and organize data including with pivot_longer
+library(scales) # Format numbers ,dates and labels in charts
+library(ggplot2) # Create Data Visualizations
+```
+
+## IMPORTING THE DATASET
+
+```{r}
+
+origfile_url_ <- "https://raw.githubusercontent.com/MrKpoku/Data-Acquistion-and-Mangement---Kingsley-Kojo-Kpoku/refs/heads/main/PROJECT%202/Card_Association_V1.csv"
+
+card_association <- readr::read_csv("https://raw.githubusercontent.com/MrKpoku/Data-Acquistion-and-Mangement---Kingsley-Kojo-Kpoku/refs/heads/main/PROJECT%202/Card_Association_V1.csv") ## imported the csv file directly from github,making the data easy to access and reproduce for analysis
+
+## Checking the data
+
+head(card_association)
+```
+
+## CONVERTING THE COLUMNS- PIVOT LONGER
+
+```{r}
+## I used pivot longer to reshape the data from wide to long format.it combines the four card network transaction column and identifies each card network.
+
+card_association_2 <- card_association |>
+  pivot_longer(
+    cols = c(
+      visa_transactions_millions,
+      mastercard_transactions_millions,
+      amex_transactions_millions,
+      discover_transactions_millions
+    ),
+    names_to = "network",
+    names_pattern = "(.*)_transactions_millions",
+    values_to = "transactions_millions"
+  ) |>
+  mutate(
+    network = recode(
+      network,
+      visa = "Visa",
+      mastercard = "Mastercard",
+      amex = "American Express",
+      discover = "Discover"
+    )
+  ) |>
+  select(
+    month,
+    year,
+    network,
+    transactions_millions
+  )
+
+head(card_association_2)
+```
+
+## EXPLORATORY ANALYSIS - NETWORK VS TRANSACTIONS
+
+```{r}
+
+## here i wanted to discover which network has the highest transactions and % contribution.it concluded with american express being the highest
+
+network_totals <- card_association_2 |>
+  group_by(network) |>
+  summarise(
+    transactions_millions = sum(transactions_millions, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(
+    percent_contribution =
+      round(transactions_millions / sum(transactions_millions) * 100, 2),
+    transactions_millions = comma(transactions_millions, accuracy = 1)
+  ) |>
+  arrange(desc(as.numeric(gsub(",", "", transactions_millions))))
+
+network_totals
+```
+
+## VISUALIZATION - NETWORK VS TRANSACTIONS
+
+```{r}
+
+## I visualized the data to make the results easier to understand, especially for readers who prefer charts to tables of numbers and code.i must say its a close distribution for the highest to the lowest
+
+network_totals <- card_association_2 |>
+  group_by(network) |>
+  summarise(
+    transactions_millions = sum(transactions_millions, na.rm = TRUE),
+    .groups = "drop"
+  ) |>
+  mutate(
+    percent_contribution =
+      transactions_millions / sum(transactions_millions) * 100
+  ) |>
+  arrange(desc(transactions_millions))
+
+ggplot(
+  network_totals,
+  aes(
+    x = reorder(network, transactions_millions),
+    y = transactions_millions,
+    fill = network
+  )
+) +
+  geom_col(show.legend = FALSE) +
+  geom_text(
+    aes(
+      label = paste0(
+        comma(transactions_millions, accuracy = 1),
+        " (", round(percent_contribution, 2), "%)"
+      )
+    ),
+    hjust = -0.1,
+    size = 3.5
+  ) +
+  coord_flip() +
+  scale_y_continuous(
+    labels = comma,
+    expand = expansion(mult = c(0, 0.2))
+  ) +
+  labs(
+    title = "Total Transactions by Card Network",
+    x = "Card network",
+    y = "Transactions (millions)"
+  ) +
+  theme_minimal()
+```
